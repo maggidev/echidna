@@ -37,6 +37,13 @@ namespace echidna::dsp::plugins
   class PluginLoader
   {
   public:
+    /** Describes a plugin that failed to load. */
+    struct LoadFailure
+    {
+      std::string path;
+      std::string reason;
+    };
+
     /** Default constructor. */
     PluginLoader();
     /** Destructor unloads any loaded plugins. */
@@ -66,6 +73,11 @@ namespace echidna::dsp::plugins
      * @brief Return number of plugin effect instances currently loaded.
      */
     size_t plugin_count() const;
+
+    /**
+     * @brief Return the list of load failures recorded during LoadFromDirectory.
+     */
+    std::vector<LoadFailure> load_failures() const;
 
   private:
     struct ModuleHandle
@@ -97,6 +109,7 @@ namespace echidna::dsp::plugins
 
     mutable std::mutex mutex_;
     std::vector<ModuleHandle> modules_;
+    std::vector<LoadFailure> failures_;
     bool loaded_{false};
   };
 
