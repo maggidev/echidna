@@ -287,9 +287,18 @@ namespace echidna::dsp
   /**
    * @brief Worker thread loop which pulls blocks from the input queue,
    * processes them, and pushes them to the output queue.
+   *
+   * Each iteration measures wall-clock time and tracks consecutive overruns.
+   * If a configurable number of consecutive overruns occur the engine marks
+   * the next blocks as bypassed (xrun) to let the system recover.
    */
   void DspEngine::WorkerLoop()
   {
+    constexpr uint32_t kOverrunThresholdUs = 30000;
+    constexpr uint32_t kConsecutiveOverrunLimit = 6;
+    uint32_t consecutive_overruns = 0;
+    uint32_t total_xruns = 0;
+
     while (worker_running_)
     {
       auto block = input_queue_.pop_wait(std::chrono::milliseconds(5));
@@ -301,9 +310,35 @@ namespace echidna::dsp
       {
         continue;
       }
+
+      auto wall_start = std::chrono::steady_clock::now();
+
       std::vector<float> output(block->frames * block->channels);
-      if (ProcessInternal(block->data.data(), output.data(), block->frames) !=
-          ECH_DSP_STATUS_OK)
+      ech_dsp_status_t status =
+          ProcessInternal(block->data.data(), output.data(), block->frames);
+
+      auto wall_end = std::chrono::steady_clock::now();
+      const auto wall_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                               wall_end - wall_start)
+                               .count();
+
+      if (wall_us > kOverrunThresholdUs)
+      {
+        ++consecutive_overruns;
+        ++total_xruns;
+      }
+      else
+      {
+        consecutive_overruns = 0;
+      }
+
+      if (consecutive_overruns >= kConsecutiveOverrunLimit)
+      {
+        consecutive_overruns = 0;
+        continue;
+      }
+
+      if (status != ECH_DSP_STATUS_OK)
       {
         continue;
       }

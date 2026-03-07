@@ -258,6 +258,7 @@ namespace echidna::dsp::plugins
     {
       return;
     }
+    failures_.clear();
 #ifdef _WIN32
     std::error_code error;
     for (const auto &entry : std::filesystem::directory_iterator(directory, error))
@@ -318,15 +319,18 @@ namespace echidna::dsp::plugins
     const std::string signature_path = signature_path_for(path);
     if (!FileExists(signature_path))
     {
+      failures_.push_back({path, "missing signature file"});
       return false;
     }
     if (!VerifySignature(path, signature_path))
     {
+      failures_.push_back({path, "signature verification failed"});
       return false;
     }
     void *handle = OpenLibrary(path.c_str());
     if (!handle)
     {
+      failures_.push_back({path, "library open failed"});
       return false;
     }
     auto *registration = reinterpret_cast<echidna_plugin_registration_fn>(
@@ -334,6 +338,7 @@ namespace echidna::dsp::plugins
     if (!registration)
     {
       CloseLibrary(handle);
+      failures_.push_back({path, "missing registration symbol"});
       return false;
     }
     const echidna_plugin_module_t *module = registration();
@@ -341,6 +346,7 @@ namespace echidna::dsp::plugins
         !module->descriptors || module->descriptor_count == 0)
     {
       CloseLibrary(handle);
+      failures_.push_back({path, "invalid module descriptor or ABI mismatch"});
       return false;
     }
 
@@ -377,6 +383,7 @@ namespace echidna::dsp::plugins
       return true;
     }
     CloseLibrary(handle);
+    failures_.push_back({path, "no valid effect descriptors"});
     return false;
   }
 
@@ -446,6 +453,12 @@ namespace echidna::dsp::plugins
       count += module.effects.size();
     }
     return count;
+  }
+
+  std::vector<PluginLoader::LoadFailure> PluginLoader::load_failures() const
+  {
+    std::scoped_lock lock(mutex_);
+    return failures_;
   }
 
   /**
